@@ -30,6 +30,10 @@ import random
 
 ROUTER_IPADDR1 = '10.1.1.1'
 ROUTER_IPADDR2 = '10.1.4.1'
+ROUTER_IPADDR3 = '10.1.2.1'
+ROUTER_IPADDR4 = '10.1.3.1'
+ROUTER_IPADDR5 = '10.1.4.10'
+ROUTER_IPADDR6 = '10.1.5.20'
 ROUTER_MACADDR1 = '00:00:00:00:00:01'
 ROUTER_MACADDR2 = '00:00:00:00:00:02'
 ROUTER_PORT1 = 1
@@ -54,7 +58,7 @@ class SimpleSwitch14(app_manager.RyuApp):
         #To map non router ip to certain macs
         self.mac_to_ip = {}
         #Router IpAddresses
-        self.fakeways = {ROUTER_IPADDR1,ROUTER_IPADDR2}
+        self.fakeways = {ROUTER_IPADDR1,ROUTER_IPADDR2,ROUTER_IPADDR3,ROUTER_IPADDR4,ROUTER_IPADDR5,ROUTER_IPADDR6}
         #To Map router Mac to router IP
         self.fakewayMac_to_ip = {}
         #To Map router Port to router mac
