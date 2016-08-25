@@ -1,0 +1,16 @@
+RESEARCH PROJECT TO IMPLEMENT WEIGHTED-ECMP ON OPENFLOW SWITCH
+
+TO RUN:
+sudo mn --custom newmptcpTopo.py --topo mytopo --controller=remote --switch ovsk --link tc
+./changeOfVersion.sh
+in Mininet:
+xterm h1
+xterm h2
+in h1: ./host1.sh
+in h2: ./host2.sh
+in other terminal:
+./ryu/bin/ryu-manager --verbose  ~/simple.py
+(Be sure to delete all flows before attempting to run script)
+sudo ovs-ofctl del-flows s1 
+
+DOES NOT HANDLE ICMP YET
