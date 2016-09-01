@@ -33,7 +33,7 @@ ROUTER_IPADDR2 = '10.1.4.1'
 ROUTER_IPADDR3 = '10.1.2.1'
 ROUTER_IPADDR4 = '10.1.3.1'
 ROUTER_IPADDR5 = '10.1.4.10'
-ROUTER_IPADDR6 = '10.1.5.20'
+ROUTER_IPADDR6 = '10.1.4.20'
 ROUTER_MACADDR1 = '00:00:00:00:00:01'
 ROUTER_MACADDR2 = '00:00:00:00:00:02'
 ROUTER_PORT1 = 1
@@ -92,22 +92,29 @@ class SimpleSwitch14(app_manager.RyuApp):
                                 match=match, instructions=inst)
         datapath.send_msg(mod)
 
-    def receive_arp(self,datapath,packet,etherFrame,inPort):
+    def receive_arp(self,datapath,packet,etherFrame,inPort,msg):
         arpPacket = packet.get_protocol(arp)
         if arpPacket.opcode == 1 :
             arp_dstIp = arpPacket.dst_ip
             self.logger.debug('received ARP Request %s => %s (port%d)'%(etherFrame.src,etherFrame.dst,inPort))
-            self.reply_arp(datapath,etherFrame,arpPacket,arp_dstIp,inPort)
+            self.reply_arp(datapath,etherFrame,arpPacket,arp_dstIp,inPort,msg)
         elif arpPacket.opcode == 2 :
             arp_srcIp = arpPacket.src_ip
             srcMac = etherFrame.src
-            #Add Mac source and Ip to our Mac_to_Ip table
-            self.mac_to_ip[datapath.id][srcMac] = arp_srcIp
-            #Add Mac source to our mac to port table
-            self.mac_to_port[datapath.id][srcMac] = inPort
-            pass
-
-    def reply_arp(self, datapath, etherFrame, arpPacket, arp_dstIp, inPort):
+            dstMac = etherFrame.dst
+            if srcMac not in self.mac_to_ip [datapath.id]:
+                #Add Mac source and Ip to our Mac_to_Ip table
+                self.mac_to_ip[datapath.id][srcMac] = arp_srcIp
+            if srcMac not in self.mac_to_port[datapath.id]:
+                #Add Mac source to our mac to port table
+                self.mac_to_port[datapath.id][srcMac] = inPort
+            if dstMac in self.mac_to_port[datapath.id]:
+                out_port = self.mac_to_port[datapath.id][dstMac]
+                self.forward_arp(datapath,msg,inPort,out_port)
+            else:
+                self.logger.debug('YOU SHOULD CHECK THIS OUT')
+                pass
+    def reply_arp(self, datapath, etherFrame, arpPacket, arp_dstIp, inPort,msg):
         dstIp = arpPacket.src_ip
         srcIp = arpPacket.dst_ip
         dstMac = etherFrame.src
@@ -122,14 +129,9 @@ class SimpleSwitch14(app_manager.RyuApp):
             self.fakewayMac_to_port[datapath.id][routerMac] = inPort
             srcMac = routerMac
             outPort = inPort
-      #  if arp_dstIp == ROUTER_IPADDR1:
-      #      srcMac = ROUTER_MACADDR1
-      #      outPort = inPort
-      #  elif arp_dstIp == ROUTER_IPADDR2:
-      #      srcMac = ROUTER_MACADDR2
-      #      outPort = inPort
         else:
             self.logger.debug("unknown arp request received !")
+            self.flood_arp(datapath,msg,inPort)
         self.send_arp(datapath, 2, srcMac, srcIp, dstMac, dstIp, outPort)
         self.logger.debug("send ARP reply %s => %s (port%d)" %(srcMac, dstMac, outPort))
     
@@ -154,7 +156,28 @@ class SimpleSwitch14(app_manager.RyuApp):
             actions=actions,
             data=p.data)
         datapath.send_msg(out)
-   
+    
+    def flood_arp(self,datapath,message,inPort):
+        #Set out port to flood
+        out_port = datapath.ofproto.OFPP_FLOOD
+        actions = [parser.OFPActionOutput(out_port)]
+        data = None
+        if msg.buffer_id == ofproto.OFP_NO_BUFFER:
+                data = msg.data
+
+        out = parser.OFPPacketOut(datapath=datapath, buffer_id=msg.buffer_id,
+                                  in_port=inPort, actions=actions, data=data)
+        datapath.send_msg(out) 
+    
+    def forward_arp(self,datapath,message,inPort,out_port):
+        actions = [parser.OFPActionOutput(out_port)]
+        data = None
+        if msg.buffer_id == datapath.ofproto.OFP_NO_BUFFER:
+                data = msg.data
+        out = parser.OFPPacketOut(datapath=datapath, buffer_id=msg.buffer_id,
+                                  in_port=inPort, actions=actions, data=data)
+        datapath.send_msg(out) 
+
     @set_ev_cls(ofp_event.EventOFPPacketIn, MAIN_DISPATCHER)
     def _packet_in_handler(self, ev):
         msg = ev.msg
@@ -178,87 +201,113 @@ class SimpleSwitch14(app_manager.RyuApp):
         self.fakewayMac_to_ip.setdefault(dpid,{})
         self.fakewayMac_to_port.setdefault(dpid,{})
         self.logger.info("packet in %s %s %s %s", dpid, src, dst, in_port)
-        ###ADDED######
-        if eth.ethertype == ether_types.ETH_TYPE_ARP:
-            self.receive_arp(datapath,pkt,eth,in_port)
-            #Learn src mac and src ip
-            self.mac_to_ip[dpid][src] = pkt.get_protocol(arp).src_ip
-            #Learn src mac and port it came from
+        #####SIMPLE_SWITCH_14_CODE########
+        if dpid == 4:
+            # learn a mac address to avoid FLOOD next time.
             self.mac_to_port[dpid][src] = in_port
-        # learn a mac address to avoid FLOOD next time.
-        self.mac_to_port[dpid][src] = in_port
-        #learn ip to mac
-        if eth.ethertype == ether_types.ETH_TYPE_IP:
-            ipv4_pak = pkt.get_protocol(ipv4.ipv4)
-            self.mac_to_ip[dpid][src] = ipv4_pak.src 
-        #if dst in self.mac_to_port[dpid]:
-        #    out_port = self.mac_to_port[dpid][dst]
-        #else:
-        #    out_port = ofproto.OFPP_FLOOD
-            if dst in self.fakewayMac_to_ip[dpid]:
-                if self.fakewayMac_to_port[dpid][dst] == 1:
-                    out_port = 2
-                    #Check if port 2 has a mac
-                    if 2 in self.fakewayMac_to_port[dpid].values():
-                        #It does, we assign it
-                        srcMac = self.fakewayMac_to_port[dpid].keys()[self.fakewayMac_to_port[dpid].values().index(2)]
-                    else:
-                        #It doesn't we assign a new mac address:
-                        srcMac = str(macPrettyPrint(randomMAC()))
-                        #Add it to RouterIp/Mac Table
-                        self.fakewayMac_to_ip[dpid][srcMac] = '10.1.4.1'
-                        #Add it to Gateway interface-Mac Table
-                        self.fakewayMac_to_port[dpid][srcMac] = out_port
-                else:
-                    out_port = 1
-                    #Check if port 1 has a mac
-                    if 1 in self.fakewayMac_to_port[dpid].values():
-                        #It does, we assign it
-                        srcMac = self.fakewayMac_to_port[dpid].keys()[self.fakewayMac_to_port[dpid].values().index(1)]
-                    else:
-                        #It doesn't we assign a new mac address:
-                        srcMac = str(macPrettyPrint(randomMAC()))
-                        #Add it to RouterIp/Mac Table
-                        self.fakewayMac_to_ip[dpid][srcMac] = '10.1.1.1'
-                        #Add it to Gateway interface-Mac Table
-                        self.fakewayMac_to_port[dpid][srcMac] = out_port
-                #Is the Ip destination in Mac to IP table?
-                if ipv4_pak.dst in  self.mac_to_ip[dpid].values():
-                    actions = [parser.OFPActionSetField(eth_dst = self.mac_to_ip[dpid].keys()[self.mac_to_ip[dpid].values().index(ipv4_pak.dst)])]
-                else:
-                    #SEND ARP REQUEST FOR THIS IP IF NOT KNOWN
-                    self.send_arp(datapath,1,srcMac,self.fakewayMac_to_ip[dpid][srcMac],'ff:ff:ff:ff:ff:ff',ipv4_pak.dst,out_port)
-                    return
-                actions.append(parser.OFPActionSetField(eth_src = srcMac))
-                actions.append(parser.OFPActionOutput(out_port))
-       # if dst == '00:00:00:00:00:01':
-       #     out_port = ROUTER_PORT2
-       #     actions = [parser.OFPActionSetField(eth_dst = 'b2:64:b7:5f:5a:97')]
-       #     actions.append(parser.OFPActionSetField(eth_src = ROUTER_MACADDR2))
-       #     actions.append(parser.OFPActionOutput(out_port))
-       #     self.logger.info('ok')
-       # elif dst == '00:00:00:00:00:02':
-       #     out_port = ROUTER_PORT1
-       #     actions = [parser.OFPActionSetField(eth_dst = 'a2:86:fb:29:dc:57')]
-       #     actions.append(parser.OFPActionSetField(eth_src = ROUTER_MACADDR1))
-       #     actions.append(parser.OFPActionOutput(out_port))
-       #     self.logger.info('ok')
-##########################
-        #install a flow
-        match = parser.OFPMatch(in_port = in_port, eth_dst = dst)
-        if actions:
-            self.add_flow(datapath,1,match,actions)
+
+            if dst in self.mac_to_port[dpid]:
+                out_port = self.mac_to_port[dpid][dst]
+            else:
+                out_port = ofproto.OFPP_FLOOD
+
+            actions = [parser.OFPActionOutput(out_port)]
+
+            # install a flow to avoid packet_in next time
+            if out_port != ofproto.OFPP_FLOOD:
+                match = parser.OFPMatch(in_port=in_port, eth_dst=dst)
+                self.add_flow(datapath, 1, match, actions)
+
             data = None
             if msg.buffer_id == ofproto.OFP_NO_BUFFER:
                 data = msg.data
-                out = parser.OFPPacketOut(datapath=datapath, buffer_id=msg.buffer_id,
-                                          in_port=in_port, actions=actions, data=data)
-                datapath.send_msg(out)
+
+            out = parser.OFPPacketOut(datapath=datapath, buffer_id=msg.buffer_id,
+                                  in_port=in_port, actions=actions, data=data)
+            datapath.send_msg(out) 
+###########SIMPLE_SWITCH_14_CODE_ENDS############
+       ###ADDED######
+        else:
+            if eth.ethertype == ether_types.ETH_TYPE_ARP:
+                self.receive_arp(datapath,pkt,eth,in_port,msg)
+                #Learn src mac and src ip
+                self.mac_to_ip[dpid][src] = pkt.get_protocol(arp).src_ip
+                #Learn src mac and port it came from
+                self.mac_to_port[dpid][src] = in_port
+                # learn a mac address to avoid FLOOD next time.
+                self.mac_to_port[dpid][src] = in_port
+                #learn ip to mac
+            if eth.ethertype == ether_types.ETH_TYPE_IP:
+                ipv4_pak = pkt.get_protocol(ipv4.ipv4)
+                self.mac_to_ip[dpid][src] = ipv4_pak.src 
+                #if dst in self.mac_to_port[dpid]:
+                #    out_port = self.mac_to_port[dpid][dst]
+                #else:
+                #    out_port = ofproto.OFPP_FLOOD
+                if dst in self.fakewayMac_to_ip[dpid]:
+                    if self.fakewayMac_to_port[dpid][dst] == 1:
+                        out_port = 2
+                        #Check if port 2 has a mac
+                        if 2 in self.fakewayMac_to_port[dpid].values():
+                            #It does, we assign it
+                            srcMac = self.fakewayMac_to_port[dpid].keys()[self.fakewayMac_to_port[dpid].values().index(2)]
+                        else:
+                            #It doesn't we assign a new mac address:
+                            srcMac = str(macPrettyPrint(randomMAC()))
+                            #Add it to RouterIp/Mac Table
+                            self.fakewayMac_to_ip[dpid][srcMac] = '10.1.4.1'
+                            #Add it to Gateway interface-Mac Table
+                            self.fakewayMac_to_port[dpid][srcMac] = out_port
+                    else:
+                        out_port = 1
+                        #Check if port 1 has a mac
+                        if 1 in self.fakewayMac_to_port[dpid].values():
+                            #It does, we assign it
+                            srcMac = self.fakewayMac_to_port[dpid].keys()[self.fakewayMac_to_port[dpid].values().index(1)]
+                        else:
+                            #It doesn't we assign a new mac address:
+                            srcMac = str(macPrettyPrint(randomMAC()))
+                            #Add it to RouterIp/Mac Table
+                            self.fakewayMac_to_ip[dpid][srcMac] = '10.1.1.1'
+                            #Add it to Gateway interface-Mac Table
+                            self.fakewayMac_to_port[dpid][srcMac] = out_port
+                    #Is the Ip destination in Mac to IP table?
+                    if ipv4_pak.dst in  self.mac_to_ip[dpid].values():
+                        actions = [parser.OFPActionSetField(eth_dst = self.mac_to_ip[dpid].keys()[self.mac_to_ip[dpid].values().index(ipv4_pak.dst)])]
+                    else:
+                        #SEND ARP REQUEST FOR THIS IP IF NOT KNOWN
+                        self.send_arp(datapath,1,srcMac,self.fakewayMac_to_ip[dpid][srcMac],'ff:ff:ff:ff:ff:ff',ipv4_pak.dst,out_port)
+                        return
+                    actions.append(parser.OFPActionSetField(eth_src = srcMac))
+                    actions.append(parser.OFPActionOutput(out_port))
+                # if dst == '00:00:00:00:00:01':
+                #     out_port = ROUTER_PORT2
+                #     actions = [parser.OFPActionSetField(eth_dst = 'b2:64:b7:5f:5a:97')]
+                #     actions.append(parser.OFPActionSetField(eth_src = ROUTER_MACADDR2))
+                #     actions.append(parser.OFPActionOutput(out_port))
+                #     self.logger.info('ok')
+                # elif dst == '00:00:00:00:00:02':
+                #     out_port = ROUTER_PORT1
+                #     actions = [parser.OFPActionSetField(eth_dst = 'a2:86:fb:29:dc:57')]
+                #     actions.append(parser.OFPActionSetField(eth_src = ROUTER_MACADDR1))
+                #     actions.append(parser.OFPActionOutput(out_port))
+                #     self.logger.info('ok')
+                ##########################
+                #install a flow
+                match = parser.OFPMatch(in_port = in_port, eth_dst = dst)
+                if actions:
+                    self.add_flow(datapath,1,match,actions)
+                    data = None
+                    if msg.buffer_id == ofproto.OFP_NO_BUFFER:
+                        data = msg.data
+                        out = parser.OFPPacketOut(datapath=datapath, buffer_id=msg.buffer_id,
+                                                  in_port=in_port, actions=actions, data=data)
+                        datapath.send_msg(out)
 
       # install a flow to avoid packet_in next time
-    #    if out_port != ofproto.ofpp_flood:
-    #        match = parser.ofpmatch(in_port=in_port, eth_dst=dst)
-    #        self.add_flow(datapath, 1, match, actions)
+      #    if out_port != ofproto.ofpp_flood:
+      #        match = parser.ofpmatch(in_port=in_port, eth_dst=dst)
+      #        self.add_flow(datapath, 1, match, actions)
 
     #    data = none
     #    if msg.buffer_id == ofproto.ofp_no_bUFFER:
