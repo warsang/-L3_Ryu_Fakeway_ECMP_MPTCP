@@ -1,0 +1,21 @@
+#!/bin/bash
+sudo ovs-vsctl set Bridge 0_0_1 protocols=OpenFlow10,OpenFlow11,OpenFlow12,OpenFlow13,OpenFlow14
+sudo ovs-vsctl set Bridge 0_1_1 protocols=OpenFlow10,OpenFlow11,OpenFlow12,OpenFlow13,OpenFlow14
+sudo ovs-vsctl set Bridge 0_2_1 protocols=OpenFlow10,OpenFlow11,OpenFlow12,OpenFlow13,OpenFlow14
+sudo ovs-vsctl set Bridge 0_3_1 protocols=OpenFlow10,OpenFlow11,OpenFlow12,OpenFlow13,OpenFlow14
+sudo ovs-vsctl set Bridge 1_0_1 protocols=OpenFlow10,OpenFlow11,OpenFlow12,OpenFlow13,OpenFlow14
+sudo ovs-vsctl set Bridge 1_1_1 protocols=OpenFlow10,OpenFlow11,OpenFlow12,OpenFlow13,OpenFlow14
+sudo ovs-vsctl set Bridge 1_2_1 protocols=OpenFlow10,OpenFlow11,OpenFlow12,OpenFlow13,OpenFlow14
+sudo ovs-vsctl set Bridge 1_3_1 protocols=OpenFlow10,OpenFlow11,OpenFlow12,OpenFlow13,OpenFlow14
+sudo ovs-vsctl set Bridge 2_0_1 protocols=OpenFlow10,OpenFlow11,OpenFlow12,OpenFlow13,OpenFlow14
+sudo ovs-vsctl set Bridge 2_1_1 protocols=OpenFlow10,OpenFlow11,OpenFlow12,OpenFlow13,OpenFlow14
+sudo ovs-vsctl set Bridge 2_2_1 protocols=OpenFlow10,OpenFlow11,OpenFlow12,OpenFlow13,OpenFlow14
+sudo ovs-vsctl set Bridge 2_3_1 protocols=OpenFlow10,OpenFlow11,OpenFlow12,OpenFlow13,OpenFlow14
+sudo ovs-vsctl set Bridge 3_0_1 protocols=OpenFlow10,OpenFlow11,OpenFlow12,OpenFlow13,OpenFlow14
+sudo ovs-vsctl set Bridge 3_1_1 protocols=OpenFlow10,OpenFlow11,OpenFlow12,OpenFlow13,OpenFlow14
+sudo ovs-vsctl set Bridge 3_2_1 protocols=OpenFlow10,OpenFlow11,OpenFlow12,OpenFlow13,OpenFlow14
+sudo ovs-vsctl set Bridge 3_3_1 protocols=OpenFlow10,OpenFlow11,OpenFlow12,OpenFlow13,OpenFlow14
+sudo ovs-vsctl set Bridge 4_1_1 protocols=OpenFlow10,OpenFlow11,OpenFlow12,OpenFlow13,OpenFlow14
+sudo ovs-vsctl set Bridge 4_1_2 protocols=OpenFlow10,OpenFlow11,OpenFlow12,OpenFlow13,OpenFlow14
+sudo ovs-vsctl set Bridge 4_2_1 protocols=OpenFlow10,OpenFlow11,OpenFlow12,OpenFlow13,OpenFlow14
+sudo ovs-vsctl set Bridge 4_2_2 protocols=OpenFlow10,OpenFlow11,OpenFlow12,OpenFlow13,OpenFlow14

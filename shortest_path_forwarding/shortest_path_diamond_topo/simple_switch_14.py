@@ -12,7 +12,7 @@
 # implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
- #
+
 from ryu.base import app_manager
 from ryu.controller import ofp_event
 from ryu.controller.handler import CONFIG_DISPATCHER, MAIN_DISPATCHER
@@ -32,11 +32,13 @@ class SimpleSwitch14(app_manager.RyuApp):
 
     def __init__(self, *args, **kwargs):
         super(SimpleSwitch14, self).__init__(*args, **kwargs)
+        self.mac_to_port = {}
         self.topology_api_app = self
         self.net = nx.DiGraph()
         self.nodes = {}
-        self.dst_to_group = {}
-        self.dst_to_rule = {}
+        self.links = {}
+
+
     @set_ev_cls(ofp_event.EventOFPSwitchFeatures, CONFIG_DISPATCHER)
     def switch_features_handler(self, ev):
         datapath = ev.msg.datapath
@@ -55,38 +57,6 @@ class SimpleSwitch14(app_manager.RyuApp):
                                           ofproto.OFPCML_NO_BUFFER)]
         self.add_flow(datapath, 0, match, actions)
 
-    def add_group(self,datapath,path_list,group_id):
-        ofproto = datapath.ofproto
-        parser = datapath.ofproto_parser
-        dpid = datapath.id
-        weight = 100 / len(path_list)
-        watch_port = ofproto_v1_4.OFPP_ANY
-        watch_group = ofproto_v1_4.OFPQ_ALL
-        try:
-            rest = 100 % len(path_list)
-        except:
-            rest = 0
-        weight_list = []
-        for p in path_list:
-            weight_list.append(weight)
-        weight_list[0] = weight_list[0] + rest
-        buckets = []
-        for i in range(len(path_list)):
-            print path_list[i]
-            try:
-                next = path_list[i][path_list[i].index(dpid) + 1]
-            except:
-                try:
-                    next = path_list[i+1][path_list[i+1].index(dpid) + 1]
-                except:
-                    next = path_list[i-1][path_list[i - 1].index(dpid) +1]
-            out_port = self.net[dpid][next]['port']
-            actions = [parser.OFPActionOutput(out_port)]
-            buckets.append(parser.OFPBucket(weight_list[i],watch_port, watch_group,actions))
-            
-        req = parser.OFPGroupMod(datapath,ofproto.OFPFC_ADD,ofproto.OFPGT_SELECT,group_id,buckets)
-        datapath.send_msg(req)
-
     def add_flow(self, datapath, priority, match, actions):
         ofproto = datapath.ofproto
         parser = datapath.ofproto_parser
@@ -97,6 +67,45 @@ class SimpleSwitch14(app_manager.RyuApp):
         mod = parser.OFPFlowMod(datapath=datapath, priority=priority,
                                 match=match, instructions=inst)
         datapath.send_msg(mod)
+    
+    def add_group(self,datapath,paths,group_id):
+        ofproto = datapath.ofproto
+        parser = datapath.ofproto_parser
+        dpid = datapath.id
+        path_list = list(paths)
+        weight = 100 / len(path_list)
+        watch_port = ofproto_v1_4.OFPP_ANY
+        watch_group = ofproto_v1_4.OFPQ_ALL
+        weight_list = []
+        buckets = []
+        self.logger.info(path_list)
+        try:
+            rest = 100 % len(path_list)
+        except:
+            rest = 0
+        
+        for p in path_list:
+            weight_list.append(weight)
+        weight_list[0] = weight_list[0] + rest
+        self.logger.info(weight_list) 
+        for i in range(len(path_list)):
+            next = None
+            self.logger.info(path_list[i])
+            for j in path_list[i]:
+                if j == dpid:
+                    next = path_list[i][path_list[i].index(dpid) + 1] 
+                    self.logger.info('NEXT Hop found!')
+                    break
+            if next:
+                out_port = self.net[dpid][next]['port']
+                actions = [parser.OFPActionOutput(out_port)]
+                buckets.append(parser.OFPBucket(weight_list[i],watch_port,watch_group,actions))
+                self.logger.info('BUCKET ADDED!')
+            else:
+                continue
+        req = parser.OFPGroupMod(datapath,ofproto.OFPFC_ADD,ofproto.OFPGT_SELECT,group_id,buckets)
+        datapath.send_msg(req)
+        self.logger.info('MESSAGE SENT!!')
 
     @set_ev_cls(ofp_event.EventOFPPacketIn, MAIN_DISPATCHER)
     def _packet_in_handler(self, ev):
@@ -106,75 +115,35 @@ class SimpleSwitch14(app_manager.RyuApp):
         parser = datapath.ofproto_parser
         in_port = msg.match['in_port']
         out_port = None
+
+        actions = []
+        
         pkt = packet.Packet(msg.data)
         eth = pkt.get_protocols(ethernet.ethernet)[0]
+
         dst = eth.dst
         src = eth.src
 
         dpid = datapath.id
-        self.dst_to_group.setdefault(dpid,{})
-        self.dst_to_rule.setdefault(dpid,{})
-        actions = []
-        #IGNORE IPV6 Multicast packets with 33:33:xx:xx:xx:xx address
-        if dst.split(":")[1] == '33':
-            return
-        #Installa flood rule for broadcast
-        if dst == 'ff:ff:ff:ff:ff:ff':
-            if src not in self.net:
-                self.net.add_node(src)
-                self.net.add_edge(dpid,src,{'port': in_port})
-                self.net.add_edge(src,dpid)
-            out_port = ofproto.OFPP_FLOOD 
-            actions.append(parser.OFPActionOutput(out_port))
-            match = parser.OFPMatch(eth_dst=dst)
-            self.add_flow(datapath,1,match,actions)
-            data = None
-            if msg.buffer_id == ofproto.OFP_NO_BUFFER:
-                data = msg.data
+        self.mac_to_port.setdefault(dpid, {})
 
-            out = parser.OFPPacketOut(datapath=datapath, buffer_id=msg.buffer_id,
-                                  in_port=in_port, actions=actions, data=data)
-            datapath.send_msg(out)
-            return
-        #Ignore printing LLDP packets (mac is controller)
-        if dst != '01:80:c2:00:00:0e': 
-            print "dpid %s src %s dst %s in_port %s" % (dpid,src,dst,in_port)
+        #self.logger.info("packet in %s %s %s %s", dpid, src, dst, in_port)
         if src not in self.net:
-            print 'Adding node and links'
             self.net.add_node(src)
             self.net.add_edge(dpid,src,{'port':in_port})
             self.net.add_edge(src,dpid)
-            print self.net
-        if dst in self.net: #and dst not in self.dst_to_group[dpid]:
-            print 'Determining how many paths'
-            paths = nx.all_shortest_paths(self.net,dpid,dst)
-            path_list = list(paths)
-            print path_list
-            if len(path_list) > 1:
-                print 'calculating several short path (group)'
-                group_id = randint(1,99999) #Generate random  group_id TODO Check if doesn't exist
-                self.dst_to_group[dpid][dst] = group_id
-                self.add_group(datapath,path_list,group_id)
-                actions.append(parser.OFPActionGroup(group_id))
-            elif len(path_list) == 1:
-                print 'calculating one short path'
-                self.dst_to_group[dpid][dst] = 0
-                path = path_list[0]
-                next = path[path.index(dpid) + 1]
-                out_port = self.net[dpid][next]['port']
-                actions.append(parser.OFPActionOutput(out_port))
-             
+        if dst in self.net:
+            paths= nx.all_shortest_paths(self.net,dpid,dst)
+            group_id = randint(1,99999)
+            self.add_group(datapath,paths,group_id)
+            actions.append(parser.OFPActionGroup(group_id))
         else:
             out_port = ofproto.OFPP_FLOOD
             actions.append(parser.OFPActionOutput(out_port))
-        #if out_port == None:
-        #    out_port = ofproto.OFPP_FLOOD
-        #actions.append(parser.OFPActionOutput(out_port))
 
         # install a flow to avoid packet_in next time
         if out_port != ofproto.OFPP_FLOOD:
             match = parser.OFPMatch(in_port=in_port, eth_dst=dst)
-            print "datapath %s match %s actions %s" %(datapath,match,actions)
             self.add_flow(datapath, 1, match, actions)
 
         data = None
@@ -195,5 +164,6 @@ class SimpleSwitch14(app_manager.RyuApp):
         self.net.add_edges_from(links)
         links=[(link.dst.dpid,link.src.dpid,{'port':link.dst.port_no}) for link in links_list]
         self.net.add_edges_from(links)
-        print "**********List of links"
-        print self.net.edges()
+        self.logger.info( "**********List of links")
+        self.logger.info( self.net.edges())
+

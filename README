@@ -1,5 +1,5 @@
 RESEARCH PROJECT TO IMPLEMENT WEIGHTED-ECMP ON OPENFLOW SWITCH
-
+Inspired by poc L3 learning switch and ryu simple router
 TO RUN:
 sudo mn --custom newmptcpTopo.py --topo mytopo --controller=remote --switch ovsk --link tc
 ./changeOfVersion.sh
